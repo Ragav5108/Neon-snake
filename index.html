@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>NEON SNAKE</title>
+  <script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #0a0a0a, #1a0033);
+      color: #0ff;
+      font-family: 'Press Start 2P', cursive;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      touch-action: none;
+      overflow: hidden;
+    }
+
+    .game-container {
+      text-align: center;
+      background: rgba(10, 10, 30, 0.9);
+      backdrop-filter: blur(12px);
+      border: 4px solid #0ff;
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 0 40px #0ff;
+      max-width: 460px;
+      width: 95%;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin: 0 0 10px 0;
+      text-shadow: 0 0 15px #0ff;
+    }
+
+    .score-container {
+      display: flex;
+      justify-content: space-between;
+      margin: 15px 0 20px 0;
+      font-size: 20px;
+    }
+
+    #score { color: #0f0; }
+    #highscore { color: #ff0; }
+
+    canvas {
+      border: 6px solid #0ff;
+      border-radius: 12px;
+      box-shadow: 0 0 30px #0ff;
+      background: #000;
+      touch-action: none;
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .controls {
+      margin: 20px 0 15px 0;
+    }
+
+    .controls button {
+      width: 70px;
+      height: 70px;
+      font-size: 30px;
+      margin: 5px;
+      background: rgba(0, 255, 255, 0.1);
+      color: #0ff;
+      border: 3px solid #0ff;
+      border-radius: 15px;
+      cursor: pointer;
+    }
+
+    .controls button:active {
+      background: #0ff;
+      color: #000;
+    }
+
+    #actionBtn {
+      padding: 12px 35px;
+      font-size: 16px;
+      background: #000;
+      color: #0ff;
+      border: 4px solid #0ff;
+      border-radius: 12px;
+      cursor: pointer;
+      margin-top: 10px;
+      min-width: 160px;
+    }
+
+    #actionBtn:active {
+      background: #0ff;
+      color: #000;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="game-container">
+    <h1>NEON SNAKE</h1>
+    
+    <div class="score-container">
+      <div>SCORE: <span id="score">000</span></div>
+      <div>HIGH: <span id="highscore">000</span></div>
+    </div>
+    
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+
+    <div class="controls">
+      <button id="up">↑</button><br>
+      <button id="left">←</button>
+      <button id="down">↓</button>
+      <button id="right">→</button>
+    </div>
+
+    <button id="actionBtn">START</button>
+  </div>
+
+  <script>
+    // Simple Audio Context for sounds
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playClickSound() {
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+      gain.gain.value = 0.2;
+      oscillator.connect(gain).connect(audioCtx.destination);
+      oscillator.start();
+      setTimeout(() => oscillator.stop(), 50);
+    }
+
+    function playEatSound() {
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime);
+      gain.gain.value = 0.3;
+      oscillator.connect(gain).connect(audioCtx.destination);
+      oscillator.start();
+      setTimeout(() => {
+        oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+      }, 30);
+      setTimeout(() => oscillator.stop(), 120);
+    }
+
+    function playGameOverSound() {
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.setValueAtTime(400, audioCtx.currentTime);
+      gain.gain.value = 0.4;
+      oscillator.connect(gain).connect(audioCtx.destination);
+      oscillator.start();
+      oscillator.frequency.linearRampToValueAtTime(80, audioCtx.currentTime + 0.8);
+      gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.2);
+      setTimeout(() => oscillator.stop(), 1200);
+    }
+
+    // Poki SDK
+    let pokiReady = false;
+    try {
+      PokiSDK.init().then(() => { pokiReady = true; }).catch(() => {});
+    } catch (e) {}
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const highscoreElement = document.getElementById('highscore');
+    const actionBtn = document.getElementById('actionBtn');
+
+    const gridSize = 20;
+    const tileCount = canvas.width / gridSize;
+
+    let snake = [{ x: 10, y: 10 }];
+    let food = {};
+    let specialFruit = null;
+    let specialTimer = null;
+    let dx = 1;
+    let dy = 0;
+    let score = 0;
+    let highScore = 0;
+    let gameSpeed = 250;
+    let gameInterval = null;
+    let isRunning = false;
+    let isPaused = true;
+    let isGameOverState = false;
+
+    function loadHighScore() {
+      const saved = localStorage.getItem('neonSnakeHighScore');
+      if (saved) {
+        highScore = parseInt(saved);
+        highscoreElement.textContent = highScore.toString().padStart(3, '0');
+      }
+    }
+
+    function saveHighScore() {
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('neonSnakeHighScore', highScore);
+        highscoreElement.textContent = highScore.toString().padStart(3, '0');
+      }
+    }
+
+    function randomFood() {
+      do {
+        food = { x: Math.floor(Math.random() * tileCount), y: Math.floor(Math.random() * tileCount) };
+      } while (snake.some(s => s.x === food.x && s.y === food.y));
+    }
+
+    function spawnSpecialFruit() {
+      if (specialFruit) return;
+      do {
+        specialFruit = { x: Math.floor(Math.random() * tileCount), y: Math.floor(Math.random() * tileCount) };
+      } while (snake.some(s => s.x === specialFruit.x && s.y === specialFruit.y) || 
+               (specialFruit.x === food.x && specialFruit.y === food.y));
+
+      if (specialTimer) clearTimeout(specialTimer);
+      specialTimer = setTimeout(() => { specialFruit = null; }, 5000);
+    }
+
+    function drawGame() {
+      const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+      if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount ||
+          snake.some(segment => segment.x === head.x && segment.y === head.y)) {
+        gameOver();
+        return;
+      }
+
+      snake.unshift(head);
+
+      let ateNormal = false;
+      let ateSpecial = false;
+
+      if (head.x === food.x && head.y === food.y) {
+        score += 1;
+        ateNormal = true;
+        playEatSound();
+        randomFood();
+        if (Math.random() < 0.14) spawnSpecialFruit();
+      }
+
+      if (specialFruit && head.x === specialFruit.x && head.y === specialFruit.y) {
+        score += 10;
+        ateSpecial = true;
+        playEatSound();
+        specialFruit = null;
+        if (specialTimer) clearTimeout(specialTimer);
+      }
+
+      if (!ateNormal) snake.pop();
+
+      if (ateNormal || ateSpecial) {
+        scoreElement.textContent = score.toString().padStart(3, '0');
+        saveHighScore();
+
+        if (score % 50 === 0 && gameSpeed > 60) {
+          gameSpeed -= 10;
+          clearInterval(gameInterval);
+          gameInterval = setInterval(drawGame, gameSpeed);
+        }
+      }
+
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Snake body
+      ctx.fillStyle = '#0f0';
+      snake.forEach(segment => {
+        ctx.fillRect(segment.x * gridSize, segment.y * gridSize, gridSize - 2, gridSize - 2);
+      });
+
+      // Head with eyes
+      const headX = snake[0].x * gridSize;
+      const headY = snake[0].y * gridSize;
+      ctx.fillStyle = '#0f0';
+      ctx.fillRect(headX, headY, gridSize - 2, gridSize - 2);
+
+      ctx.fillStyle = '#000';
+      let eye1X, eye1Y, eye2X, eye2Y;
+      if (dx === 1) { eye1X = headX + 12; eye1Y = headY + 5; eye2X = headX + 12; eye2Y = headY + 12; }
+      else if (dx === -1) { eye1X = headX + 3; eye1Y = headY + 5; eye2X = headX + 3; eye2Y = headY + 12; }
+      else if (dy === -1) { eye1X = headX + 5; eye1Y = headY + 3; eye2X = headX + 12; eye2Y = headY + 3; }
+      else if (dy === 1) { eye1X = headX + 5; eye1Y = headY + 12; eye2X = headX + 12; eye2Y = headY + 12; }
+
+      ctx.fillRect(eye1X, eye1Y, 5, 5);
+      ctx.fillRect(eye2X, eye2Y, 5, 5);
+
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(eye1X + 1, eye1Y + 1, 2, 2);
+      ctx.fillRect(eye2X + 1, eye2Y + 1, 2, 2);
+
+      // Normal food
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(food.x * gridSize, food.y * gridSize, gridSize - 2, gridSize - 2);
+
+      // Special fruit
+      if (specialFruit) {
+        ctx.fillStyle = '#ff0';
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 20;
+        ctx.fillRect(specialFruit.x * gridSize + 2, specialFruit.y * gridSize + 2, gridSize - 6, gridSize - 6);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function startNewGame() {
+      snake = [{ x: 10, y: 10 }];
+      dx = 1; dy = 0;
+      score = 0;
+      specialFruit = null;
+      if (specialTimer) clearTimeout(specialTimer);
+      scoreElement.textContent = '000';
+      gameSpeed = 250;
+      randomFood();
+      isRunning = true;
+      isPaused = false;
+      isGameOverState = false;
+      actionBtn.textContent = "PAUSE";
+      clearInterval(gameInterval);
+      gameInterval = setInterval(drawGame, gameSpeed);
+      if (pokiReady) PokiSDK.gameplayStart();
+    }
+
+    function pauseGame() {
+      if (gameInterval) clearInterval(gameInterval);
+      gameInterval = null;
+      isPaused = true;
+      actionBtn.textContent = "RESUME";
+    }
+
+    function resumeGame() {
+      isPaused = false;
+      actionBtn.textContent = "PAUSE";
+      gameInterval = setInterval(drawGame, gameSpeed);
+      if (pokiReady) PokiSDK.gameplayStart();
+    }
+
+    function gameOver() {
+      if (gameInterval) clearInterval(gameInterval);
+      if (specialTimer) clearTimeout(specialTimer);
+      if (pokiReady) PokiSDK.gameplayStop();
+      playGameOverSound();
+      saveHighScore();
+      isRunning = false;
+      isPaused = true;
+      isGameOverState = true;
+      actionBtn.textContent = "RESTART";
+      alert(`GAME OVER!\nScore: ${score}\nHigh Score: ${highScore}`);
+    }
+
+    // Action Button
+    actionBtn.addEventListener('click', () => {
+      playClickSound();
+      if (isGameOverState) startNewGame();
+      else if (!isRunning) startNewGame();
+      else if (isPaused) resumeGame();
+      else pauseGame();
+    });
+
+    // Direction buttons with click sound
+    const dirBtns = ['up','left','down','right'];
+    dirBtns.forEach(id => {
+      document.getElementById(id).addEventListener('click', () => {
+        playClickSound();
+        if (!isRunning || isPaused || isGameOverState) return;
+        if (id === 'up' && dy !== 1) { dx = 0; dy = -1; }
+        if (id === 'down' && dy !== -1) { dx = 0; dy = 1; }
+        if (id === 'left' && dx !== 1) { dx = -1; dy = 0; }
+        if (id === 'right' && dx !== -1) { dx = 1; dy = 0; }
+      });
+    });
+
+    // Keyboard
+    document.addEventListener('keydown', e => {
+      if (!isRunning || isPaused || isGameOverState) return;
+      switch (e.key) {
+        case 'ArrowUp':    if (dy !== 1) { dx = 0; dy = -1; } break;
+        case 'ArrowDown':  if (dy !== -1) { dx = 0; dy = 1; } break;
+        case 'ArrowLeft':  if (dx !== 1) { dx = -1; dy = 0; } break;
+        case 'ArrowRight': if (dx !== -1) { dx = 1; dy = 0; } break;
+      }
+    });
+
+    // Touch swipe
+    let lastTouchX = 0, lastTouchY = 0;
+    canvas.addEventListener('touchstart', e => {
+      lastTouchX = e.changedTouches[0].screenX;
+      lastTouchY = e.changedTouches[0].screenY;
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', e => {
+      if (!isRunning || isPaused || isGameOverState) return;
+      const diffX = lastTouchX - e.changedTouches[0].screenX;
+      const diffY = lastTouchY - e.changedTouches[0].screenY;
+
+      if (Math.abs(diffX) > Math.abs(diffY)) {
+        if (diffX > 30 && dx !== 1) { dx = -1; dy = 0; }
+        else if (diffX < -30 && dx !== -1) { dx = 1; dy = 0; }
+      } else {
+        if (diffY > 30 && dy !== 1) { dx = 0; dy = -1; }
+        else if (diffY < -30 && dy !== -1) { dx = 0; dy = 1; }
+      }
+    }, { passive: true });
+
+    // Initialize
+    loadHighScore();
+    actionBtn.textContent = "START";
+  </script>
+</body>
+</html>
